@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Minesweeper</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #stats {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .dark-mode {
+            background-color: #222;
+            color: #fff;
+        }
+        .dark-mode button {
+            background-color: #555;
+        }
+    </style>
+
+<base target="_self">
+
+
+    <div id="game-container">
+        <div id="stats">
+            <div id="mines-counter">Mines: 10</div>
+            <div id="timer">Time: 0</div>
+        </div>
+        <div id="controls">
+            <button id="new-game">New Game</button>
+            <button id="hint">Hint</button>
+            <button id="theme-toggle">Dark Mode</button>
+        </div>
+    </div>
+
+    <script>
+        let grid = [];
+        let revealed = [];
+        let flagged = [];
+        let questioned = [];
+        let rows = 10;
+        let cols = 10;
+        let mines = 10;
+        let cellSize = 30;
+        let gameOver = false;
+        let gameWon = false;
+        let firstClick = true;
+        let startTime = 0;
+        let currentTime = 0;
+        let timerInterval;
+        let darkMode = false;
+        let colors = [
+            '#0000FF', // 1 - Blue
+            '#008000', // 2 - Green
+            '#FF0000', // 3 - Red
+            '#000080', // 4 - Dark Blue
+            '#800000', // 5 - Maroon
+            '#008080', // 6 - Teal
+            '#000000', // 7 - Black
+            '#808080'  // 8 - Gray
+        ];
+
+        function setup() {
+            let canvas = createCanvas(cols * cellSize, rows * cellSize);
+            canvas.parent('game-container');
+            initGame();
+            
+            document.getElementById('new-game').addEventListener('click', initGame);
+            document.getElementById('hint').addEventListener('click', giveHint);
+            document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+        }
+
+        function draw() {
+            background(darkMode ? 50 : 220);
+            drawGrid();
+            updateTimer();
+            
+            if (gameOver) {
+                fill(0, 0, 0, 150);
+                rect(0, 0, width, height);
+                fill(255);
+                textSize(32);
+                textAlign(CENTER, CENTER);
+                text(gameWon ? "You Win!" : "Game Over", width/2, height/2);
+            }
+        }
+
+        function initGame() {
+            grid = new Array(rows);
+            revealed = new Array(rows);
+            flagged = new Array(rows);
+            questioned = new Array(rows);
+            
+            for (let i = 0; i < rows; i++) {
+                grid[i] = new Array(cols).fill(0);
+                revealed[i] = new Array(cols).fill(false);
+                flagged[i] = new Array(cols).fill(false);
+                questioned[i] = new Array(cols).fill(false);
+            }
+            
+            gameOver = false;
+            gameWon = false;
+            firstClick = true;
+            clearInterval(timerInterval);
+            startTime = millis();
+            timerInterval = setInterval(updateTimer, 1000);
+            document.getElementById('mines-counter').textContent = `Mines: ${mines}`;
+            document.getElementById('timer').textContent = 'Time: 0';
+        }
+
+        function placeMines(clickX, clickY) {
+            let minesPlaced = 0;
+            
+            while (minesPlaced < mines) {
+                let x = floor(random(cols));
+                let y = floor(random(rows));
+                
+                // Don't place mine on first click position or adjacent cells
+                if ((abs(x - clickX) <= 1 && abs(y - clickY) <= 1) || grid[y][x] === -1) {
+                    continue;
+                }
+                
+                grid[y][x] = -1;
+                minesPlaced++;
+                
+                // Update adjacent cell counts
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        let nx = x + dx;
+                        let ny = y + dy;
+                        
+                        if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && grid[ny][nx] !== -1) {
+                            grid[ny][nx]++;
+                        }
+                    }
+                }
+            }
+        }
+
+        function drawGrid() {
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    let cellX = x * cellSize;
+                    let cellY = y * cellSize;
+                    
+                    // Draw cell background
+                    fill(darkMode ? (revealed[y][x] ? 100 : 70) : (revealed[y][x] ? 200 : 180));
+                    stroke(darkMode ? 50 : 150);
+                    rect(cellX, cellY, cellSize, cellSize);
+                    
+                    if (revealed[y][x]) {
+                        if (grid[y][x] === -1) {
+                            // Mine
+                            fill(0);
+                            ellipse(cellX + cellSize/2, cellY + cellSize/2, cellSize/2);
+                        } else if (grid[y][x] > 0) {
+                            // Number
+                            fill(colors[grid[y][x] - 1]);
+                            textSize(cellSize * 0.7);
+                            textAlign(CENTER, CENTER);
+                            text(grid[y][x], cellX + cellSize/2, cellY + cellSize/2);
+                        }
+                    } else {
+                        if (flagged[y][x]) {
+                            // Flag
+                            fill(255, 0, 0);
+                            triangle(
+                                cellX + cellSize/4, cellY + cellSize*3/4,
+                                cellX + cellSize/2, cellY + cellSize/4,
+                                cellX + cellSize*3/4, cellY + cellSize*3/4
+                            );
+                        } else if (questioned[y][x]) {
+                            // Question mark
+                            fill(0);
+                            textSize(cellSize * 0.7);
+                            textAlign(CENTER, CENTER);
+                            text('?', cellX + cellSize/2, cellY + cellSize/2);
+                        }
+                    }
+                }
+            }
+        }
+
+        function mousePressed() {
+            if (gameOver) return;
+            
+            let x = floor(mouseX / cellSize);
+            let y = floor(mouseY / cellSize);
+            
+            if (x < 0 || x >= cols || y < 0 || y >= rows) return;
+            
+            if (mouseButton === LEFT) {
+                if (flagged[y][x] || questioned[y][x]) return;
+                
+                if (firstClick) {
+                    placeMines(x, y);
+                    firstClick = false;
+                }
+                
+                revealCell(x, y);
+            } else if (mouseButton === RIGHT) {
+                if (!revealed[y][x]) {
+                    if (!flagged[y][x] && !questioned[y][x]) {
+                        flagged[y][x] = true;
+                    } else if (flagged[y][x]) {
+                        flagged[y][x] = false;
+                        questioned[y][x] = true;
+                    } else {
+                        questioned[y][x] = false;
+                    }
+                    updateMineCounter();
+                }
+            }
+        }
+
+        function revealCell(x, y) {
+            if (x < 0 || x >= cols || y < 0 || y >= rows || revealed[y][x] || flagged[y][x]) {
+                return;
+            }
+            
+            revealed[y][x] = true;
+            
+            if (grid[y][x] === -1) {
+                gameOver = true;
+                revealAllMines();
+                return;
+            }
+            
+            if (grid[y][x] === 0) {
+                // Reveal adjacent cells if this is an empty cell
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        revealCell(x + dx, y + dy);
+                    }
+                }
+            }
+            
+            checkWin();
+        }
+
+        function revealAllMines() {
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (grid[y][x] === -1) {
+                        revealed[y][x] = true;
+                    }
+                }
+            }
+        }
+
+        function checkWin() {
+            let unrevealedSafeCells = 0;
+            
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (!revealed[y][x] && grid[y][x] !== -1) {
+                        unrevealedSafeCells++;
+                    }
+                }
+            }
+            
+            if (unrevealedSafeCells === 0) {
+                gameOver = true;
+                gameWon = true;
+                flagAllMines();
+            }
+        }
+
+        function flagAllMines() {
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (grid[y][x] === -1 && !flagged[y][x]) {
+                        flagged[y][x] = true;
+                    }
+                }
+            }
+            updateMineCounter();
+        }
+
+        function updateMineCounter() {
+            let flagsPlaced = 0;
+            
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (flagged[y][x]) {
+                        flagsPlaced++;
+                    }
+                }
+            }
+            
+            document.getElementById('mines-counter').textContent = `Mines: ${mines - flagsPlaced}`;
+        }
+
+        function updateTimer() {
+            if (!gameOver && !firstClick) {
+                currentTime = floor((millis() - startTime) / 1000);
+                document.getElementById('timer').textContent = `Time: ${currentTime}`;
+            }
+        }
+
+        function giveHint() {
+            if (gameOver || firstClick) return;
+            
+            let safeCells = [];
+            
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (!revealed[y][x] && !flagged[y][x] && grid[y][x] !== -1) {
+                        safeCells.push({x, y});
+                    }
+                }
+            }
+            
+            if (safeCells.length > 0) {
+                let hint = safeCells[floor(random(safeCells.length))];
+                
+                // Flash the hinted cell
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => {
+                        fill(255, 255, 0, 150);
+                        rect(hint.x * cellSize, hint.y * cellSize, cellSize, cellSize);
+                    }, i * 200);
+                }
+            }
+        }
+
+        function toggleTheme() {
+            darkMode = !darkMode;
+            document.body.classList.toggle('dark-mode');
+            document.getElementById('theme-toggle').textContent = darkMode ? 'Light Mode' : 'Dark Mode';
+        }
+
+        function touchStarted() {
+            // For mobile touch support
+            mousePressed();
+            return false;
+        }
+
+        function touchEnded() {
+            // For mobile touch support
+            return false;
+        }
+    </script>
+
+              
+          
+                
+          
+              
